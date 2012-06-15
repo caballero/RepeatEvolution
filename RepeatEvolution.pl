@@ -94,7 +94,7 @@ my $ins_max    = $conf{          'ins_max'};
 for (my $gen = 1; $gen <= $last_gen; $gen++) {
     warn "GENERATION $gen\n" if (defined $verbose and ($gen % $report == 0) );
     foreach my $id (keys %seq) {
-        next if ($seq{$id}{'div'} < $dead_lim); # sequence is dead;
+        next if ($seq{$id}{'div'} > $dead_lim); # sequence is dead;
         # do we want to replicate?
         if ($p_expand >= rand) {
             # how many copies?
@@ -162,7 +162,7 @@ sub loadConfig {
     open F, "$file" or die "cannot open $file\n";
     while (<F>) {
         chomp;
-        next if (m/^[#\n]/); # skip comments and empty lines
+        next if (m/^#/ or m/^\n/); # skip comments and empty lines
         my ($var, $val) = split (/\s*:=\s*/, $_);
         $conf{$var} = $val;
     }
