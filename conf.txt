@@ -1,0 +1,23 @@
+# RepeatEvolition configuration file
+# Juan Caballero, ISB 2012
+# 
+# Format:
+# Variable := Value
+
+# number of generations
+total_generations := 100
+
+# mutation rate per generation
+mutation_rate     := 0.01
+
+# expansion probability
+prob_expansion    := 0.1
+
+# expansion max limit
+max_expansion     := 100
+# limits when a sequence cannot expand anymore
+dead_threshold    := 0.5
+
+# report every X generations
+report_generation := 10
+
