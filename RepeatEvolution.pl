@@ -83,6 +83,13 @@ my $dead_lim   = $conf{   'dead_threshold'};
 my $last_gen   = $conf{'total_generations'};
 my $report     = $conf{'report_generation'};
 
+my $snv_lim    = $conf{         'snv_freq'};
+my $del_lim    = $conf{         'del_freq'} + $snv_lim;
+my $ins_lim    = $conf{         'ins_freq'} + $del_lim;
+
+my $del_max    = $conf{          'del_max'};
+my $ins_max    = $conf{          'ins_max'};
+
 # MAIN LOOP
 for (my $gen = 1; $gen <= $last_gen; $gen++) {
     warn "GENERATION $gen\n" if (defined $verbose and ($gen % $report == 0) );
@@ -143,7 +150,7 @@ sub loadFasta {
         }
         else {
             my $seq = validateSeq(uc $_);
-            $seq{$id}{'seq'} .= $seq;
+            $seq{$id}{'seq'} .= uc($seq);
         }
     }
     close F;
@@ -211,6 +218,57 @@ sub formatSeq {
 
 sub mutate {
     my ($id, $rate) = @_;
+    my $myrate  = rand($rate);
+    my $myseq   = $seq{$id}{'seq'};
+    my $num_mut = int($myrate * length $myseq);
     
+    for (my $i = 1; $i <= $num_mut; $i++) {
+        my $pos = int(rand length $myseq);
+        my $dice = rand;
+        if    ($dice < $snv_lim) { addSNV(\$myseq, $pos); }
+        elsif ($dice < $del_lim) { addDel(\$myseq, $pos); }
+        elsif ($dice < $ins_lim) { addIns(\$myseq, $pos); }   
+    }
     
+    my $bases = $myseq =~ tr/ACGT/ACGT/;
+    my $div   = 1 - sprintf("%.2f", $bases / length $myseq);
+    $seq{$id}{'seq'} = $myseq;
+    $seq{$id}{'div'} = $div;
+}
+
+sub addSNV {
+    my ($seq_ref, $pos) = @_;
+    my $b = substr($$seq_ref, $pos, 1);
+    
+    my @n = qw/ a c g t/;
+    if    ($b =~ m/a/i) { @n = qw/ c g t/; }
+    elsif ($b =~ m/c/i) { @n = qw/ a g t/; }
+    elsif ($b =~ m/g/i) { @n = qw/ a c t/; }
+    elsif ($b =~ m/t/i) { @n = qw/ a c g/; }
+    
+    substr($$seq_ref, $pos, 1) = $n[ int(rand @n) ]; 
+}
+
+sub addDel {
+    my ($seq_ref, $pos) = @_;
+    my $size = int(rand $del_max);
+    substr($$seq_ref, $pos, $size) = '';
+}
+
+sub addIns {
+    my ($seq_ref, $pos) = @_;
+    my $b    = substr($$seq_ref, $pos, 1);
+    my $size = int(rand $ins_max);
+    my $ins  = newSeq($size);
+    substr($$seq_ref, $pos, 1) = "$b$ins";
+}
+
+sub newSeq {
+    my ($len) = @_;
+    my $seq   = '';
+    my @n     = qw/a a t t g c/;
+    for (my $i = 1; $i <= $len; $i++) {
+        $seq .= $n[ int(rand @n) ];
+    }
+    return $seq;
 }
