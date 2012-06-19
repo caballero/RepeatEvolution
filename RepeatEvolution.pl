@@ -287,8 +287,10 @@ sub mutate {
             $seq{$id}{'exp'} += $matrix{$pos}{$b};
         }
         elsif ($dice < $del_lim) { 
-            addDel($id, $pos);
-            $seq{$id}{'exp'} += $matrix{$pos}{'D'};
+            my $d = addDel($id, $pos);
+            for (my $j = 0; $j <= $d - 1; $j++) {
+                $seq{$id}{'exp'} += $matrix{$pos + $j}{'D'};
+            }
         }
         elsif ($dice < $ins_lim) { 
             addIns($id, $pos);
@@ -350,6 +352,7 @@ sub addDel {
         $seq{$id}{'seq'}[$pos] = '';
     }
     $seq{$id}{'mut'} += $size;
+    return $size;
 }
 
 sub addIns {
