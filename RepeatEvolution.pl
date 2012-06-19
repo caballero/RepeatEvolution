@@ -10,7 +10,17 @@ Synthetic evolution of repeat consensi.
 
 =head1 USAGE
 
-RepeatEvolution.pl -f FASTA -c CONFIG -o OUPUT [-s]
+RepeatEvolution.pl [OPTIONS]
+
+    Parameter       Description                     Value       Default
+    -f --fasta      Fasta file                      File
+    -o --out        Output file                     File
+    -m --matrix     Scoring matrix                  File
+    -c --config     Configuration file              File
+    -s --saveseqs   Save intermediate sequences
+    
+    -v --verbose    Verbose mode
+    -h --help       Print this screen
 
 =head1 AUTHOR
 
@@ -50,19 +60,24 @@ my $fasta     = undef;
 my $config    = undef;
 my $out       = undef;
 my $save_seqs = undef;
+my $matrix    = undef;
 
 # Main variables
 my $our_version = 0.1;
 my %seq;
 my %conf;
+my %matrix;
+my %ins_size_p;
+my %del_size_p;
 
 # Calling options
 GetOptions(
     'h|help'           => \$help,
     'v|verbose'        => \$verbose,
-    'f|fasta:s'        => \$fasta,
-    'c|config:s'       => \$config,
-    'o|out:s'          => \$out,
+    'f|fasta=s'        => \$fasta,
+    'c|config=s'       => \$config,
+    'o|out=s'          => \$out,
+    'm|matrix=s'       => \$matrix,
     's|saveseqs'       => \$save_seqs
 ) or pod2usage(-verbose => 2);
     
@@ -72,12 +87,13 @@ printVersion() if (defined $version);
 pod2usage(-verbose => 2) if !(defined $fasta);
 pod2usage(-verbose => 2) if !(defined $config);
 pod2usage(-verbose => 2) if !(defined $out);
+pod2usage(-verbose => 2) if !(defined $matrix);
 
-loadFasta($fasta);
 loadConfig($config);
+loadFasta($fasta);
+loadMatrix($matrix);
 
 my $mut_rate   = $conf{    'mutation_rate'};
-my $p_expand   = $conf{   'prob_expansion'};
 my $max_expand = $conf{    'max_expansion'};
 my $dead_lim   = $conf{   'dead_threshold'};
 my $last_gen   = $conf{'total_generations'};
@@ -87,30 +103,30 @@ my $snv_lim    = $conf{         'snv_freq'};
 my $del_lim    = $conf{         'del_freq'} + $snv_lim;
 my $ins_lim    = $conf{         'ins_freq'} + $del_lim;
 
-my $del_max    = $conf{          'del_max'};
-my $ins_max    = $conf{          'ins_max'};
-
 # MAIN LOOP
 for (my $gen = 1; $gen <= $last_gen; $gen++) {
-    warn "GENERATION $gen\n" if (defined $verbose and ($gen % $report == 0) );
+    warn "GENERATION $gen\n" if (defined $verbose and $gen % $report == 0);
     foreach my $id (keys %seq) {
-        next if ($seq{$id}{'div'} > $dead_lim); # sequence is dead;
+        next if ($seq{$id}{'isDead'} == 1); # sequence is dead
         # do we want to replicate?
-        if ($p_expand >= rand) {
+        if ($seq{$id}{'exp'} >= rand) {
             # how many copies?
             my $num_copies = int(rand $max_expand);
+            $num_copies = 1 if ($num_copies < 1);
             warn "REPLICATING $id in $num_copies\n" if (defined $verbose);
             for (my $j = 1; $j <= $num_copies; $j++) {
                 my $new_id = "$id-$j";
-                $seq{$new_id}{'div'}  = $seq{$id}{'div'};
-                $seq{$new_id}{'seq'}  = $seq{$id}{'seq'};
+                $seq{$new_id}{'div'}       =      $seq{$id}{'div'};
+                $seq{$new_id}{'exp'}       =      $seq{$id}{'exp'};
+                $seq{$new_id}{'mut'}       =      $seq{$id}{'mut'};
+                $seq{$new_id}{'isDead'}    =   $seq{$id}{'isDead'};
+                @{ $seq{$new_id}{'seq'} }  = @{ $seq{$id}{'seq'} };
             }
         }
-        
         mutate($id, $mut_rate);
-        
-        saveSeqs("$fasta.G$gen.fa") if (defined $save_seqs);
+        $seq{$id}{'isDead'} = 1 if ($seq{$id}{'div'} > $dead_lim);
     }
+    saveSeqs("$fasta.G$gen.fa") if (defined $save_seqs and $gen % $report == 0);
 }
 
 # final sequences after simulation
@@ -144,13 +160,19 @@ sub loadFasta {
         chomp;
         if (m/>(.+)/) {
             $cnt++;
-            $id = $1;
-            $seq{$id}{'div'}  = 0.0;
-            $seq{$id}{'seq'}  =  '';
+            $id  =   $1;
+            $id .= '-0';
+            $seq{$id}{'div'}      =   0;
+            $seq{$id}{'mut'}      =   0;
+            $seq{$id}{'exp'}      = $conf{'prob_expansion'};
+            $seq{$id}{'isDead'}   =   0;
+            @{ $seq{$id}{'seq'} } =  ();
         }
         else {
-            my $seq = validateSeq(uc $_);
-            $seq{$id}{'seq'} .= uc($seq);
+            my $seq = uc $_;
+               $seq = validateSeq($seq) if ($seq =~ m/[^ACGT]/);
+            my @seq = split(//, $seq);
+            push @{ $seq{$id}{'seq'} }, @seq;
         }
     }
     close F;
@@ -159,12 +181,47 @@ sub loadFasta {
 
 sub loadConfig {
     my ($file) = @_;
+    warn "reading configuration from $file\n" if (defined $verbose);
     open F, "$file" or die "cannot open $file\n";
     while (<F>) {
         chomp;
         next if (m/^#/ or m/^\n/); # skip comments and empty lines
         my ($var, $val) = split (/\s*:=\s*/, $_);
         $conf{$var} = $val;
+    }
+    close F;
+    
+    my @ins_p      = split (/,/, $conf{'ins_dist'});
+    foreach my $ins (@ins_p) {
+        my ($s, $f) = split (/=/, $ins);
+        $ins_size_p{$s} = $f;
+    }
+    
+    my @del_p      = split (/,/, $conf{'del_dist'});
+    foreach my $del (@del_p) {
+        my ($s, $f) = split (/=/, $del);
+        $del_size_p{$s} = $f;
+    }
+    
+}
+
+sub loadMatrix {
+    my ($file) = @_;
+    warn "reading score matrix from $file\n" if (defined $verbose);
+    open F, "$file" or die "cannot open $file\n";
+    my $pos = 0;
+    while (<F>) {
+        chomp;
+        next if (m/^#/);
+        my ($a, $c, $g, $t, $i, $d) = split (/\t/, $_);
+        $matrix{$pos}{'A'} = $a;
+        $matrix{$pos}{'C'} = $c;
+        $matrix{$pos}{'G'} = $g;
+        $matrix{$pos}{'T'} = $t;
+        $matrix{$pos}{'I'} = $i;
+        $matrix{$pos}{'D'} = $d;
+        $matrix{$pos}{'N'} =  0; # neutral mutation
+        $pos++;
     }
     close F;
 }
@@ -199,7 +256,7 @@ sub saveSeqs {
     open F, ">$file" or die "cannot open $file\n";
     foreach my $id (keys %seq) {
         my $div = $seq{$id}{'div'};
-        my $seq = formatSeq($seq{$id}{'seq'});
+        my $seq = formatSeq(join "", @{ $seq{$id}{'seq'} });
         print F ">$id | $div\n$seq";
     }
     close F;
@@ -219,48 +276,95 @@ sub formatSeq {
 sub mutate {
     my ($id, $rate) = @_;
     my $myrate  = rand($rate);
-    my $myseq   = $seq{$id}{'seq'};
-    my $num_mut = int($myrate * length $myseq);
+    my @myseq   = @{ $seq{$id}{'seq'} };
+    my $num_mut = int($myrate * (1 + $#myseq));
     
     for (my $i = 1; $i <= $num_mut; $i++) {
-        my $pos = int(rand length $myseq);
+        my $pos = int(rand @myseq);
         my $dice = rand;
-        if    ($dice < $snv_lim) { addSNV(\$myseq, $pos); }
-        elsif ($dice < $del_lim) { addDel(\$myseq, $pos); }
-        elsif ($dice < $ins_lim) { addIns(\$myseq, $pos); }   
+        if    ($dice < $snv_lim) { 
+            my $b = addSNV($id, $pos);
+            $seq{$id}{'exp'} += $matrix{$pos}{$b};
+        }
+        elsif ($dice < $del_lim) { 
+            addDel($id, $pos);
+            $seq{$id}{'exp'} += $matrix{$pos}{'D'};
+        }
+        elsif ($dice < $ins_lim) { 
+            addIns($id, $pos);
+            $seq{$id}{'exp'} += $matrix{$pos}{'I'};
+        }   
     }
     
-    my $bases = $myseq =~ tr/ACGT/ACGT/;
-    my $div   = 1 - sprintf("%.2f", $bases / length $myseq);
-    $seq{$id}{'seq'} = $myseq;
+    my $mut   = $seq{$id}{'mut'};
+    my $div   = sprintf("%.4f", $mut / ($#myseq + 1));
     $seq{$id}{'div'} = $div;
 }
 
 sub addSNV {
-    my ($seq_ref, $pos) = @_;
-    my $b = substr($$seq_ref, $pos, 1);
-    
-    my @n = qw/ a c g t/;
-    if    ($b =~ m/a/i) { @n = qw/ c g t/; }
-    elsif ($b =~ m/c/i) { @n = qw/ a g t/; }
-    elsif ($b =~ m/g/i) { @n = qw/ a c t/; }
-    elsif ($b =~ m/t/i) { @n = qw/ a c g/; }
-    
-    substr($$seq_ref, $pos, 1) = $n[ int(rand @n) ]; 
+    my ($id, $pos) = @_;
+    my $b = $seq{$id}{'seq'}[$pos];
+    if (length $b == 1) {
+        # regular SNV
+        my @n = qw/ a c g t/;
+        if    ($b =~ m/a/i) { @n = qw/c g t/; }
+        elsif ($b =~ m/c/i) { @n = qw/a g t/; }
+        elsif ($b =~ m/g/i) { @n = qw/a c t/; }
+        elsif ($b =~ m/t/i) { @n = qw/a c g/; }
+        my $n = $n[ int(rand @n) ];
+        $seq{$id}{'seq'}[$pos] = $n;
+        $seq{$id}{'mut'}++;
+        return uc $n;
+    }
+    elsif (length $b > 1) {
+        # mutation in an insertion point
+        my $pos2 = int(rand(length $b));
+        my $a    = substr($b, $pos2, 1);
+        my @n = qw/ a c g t/;
+        if    ($a =~ m/a/i) { @n = qw/c g t/; }
+        elsif ($a =~ m/c/i) { @n = qw/a g t/; }
+        elsif ($a =~ m/g/i) { @n = qw/a c t/; }
+        elsif ($a =~ m/t/i) { @n = qw/a c g/; }
+        substr($b, $pos2, 1) = $n[ int(rand @n) ];
+        $seq{$id}{'seq'}[$pos] = $b;
+        return 'N';
+    }
+    else {
+        # do nothing is a deletion point
+        return 'N';
+    }
 }
 
 sub addDel {
-    my ($seq_ref, $pos) = @_;
-    my $size = int(rand $del_max);
-    substr($$seq_ref, $pos, $size) = '';
+    my ($id, $pos) = @_;
+    my $max_size = 1;
+    my $dice = rand;
+    my $sum  = 0;
+    foreach my $del (keys %del_size_p) {
+        $sum     += $del_size_p{$del};
+        $max_size = $del if ($sum < $dice);
+    }
+    my $size = int(rand $max_size);
+    $size = 1 if ($size < 1);
+    for (my $i = 1; $i <= $size; $i++) {
+        $seq{$id}{'seq'}[$pos] = '';
+    }
+    $seq{$id}{'mut'} += $size;
 }
 
 sub addIns {
-    my ($seq_ref, $pos) = @_;
-    my $b    = substr($$seq_ref, $pos, 1);
-    my $size = int(rand $ins_max);
-    my $ins  = newSeq($size);
-    substr($$seq_ref, $pos, 1) = "$b$ins";
+    my ($id, $pos) = @_;
+    my $max_size = 1;
+    my $dice = rand;
+    my $sum  = 0;
+    foreach my $ins (keys %ins_size_p) {
+        $sum     += $ins_size_p{$ins};
+        $max_size = $ins if ($sum < $dice);
+    }
+    my $size = int(rand $max_size);
+    $size = 1 if ($size < 1);
+    $seq{$id}{'seq'}[$pos] .= newSeq($size);
+    $seq{$id}{'mut'} += $size;
 }
 
 sub newSeq {

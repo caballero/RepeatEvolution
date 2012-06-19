@@ -8,17 +8,17 @@ total_generations := 20
 # mutation rate per generation
 mutation_rate     := 0.01
 # frequency of SNV
-snv_freq          := 0.50
+snv_freq          := 0.80
 # frequency of insertions
-ins_freq          := 0.25
-# maximal size for insertions
-ins_max           := 10
+ins_freq          := 0.10
+# size distribution for insertions, format is SIZE=FREQ, FREQs sum must be 1
+ins_dist          := 1=0.8,5=0.1,10=0.1
 # frequency of deletions
-del_freq          := 0.25
-# maximal size for deletions
-del_max           := 10
+del_freq          := 0.10
+# size distribution for deletions, format is SIZE=FREQ, FREQs sum must be 1
+del_dist          := 1=0.8,5=0.1,10=0.1
 # expansion probability
-prob_expansion    := 0.1
+prob_expansion    := 0.8
 # expansion max limit
 max_expansion     := 4
 # limits when a sequence cannot expand anymore
