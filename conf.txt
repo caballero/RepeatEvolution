@@ -4,9 +4,9 @@
 # Format:
 # Variable := Value
 # number of generations
-total_generations := 20
+total_generations := 10
 # mutation rate per generation
-mutation_rate     := 0.01
+mutation_rate     := 0.05
 # frequency of SNV
 snv_freq          := 0.80
 # frequency of insertions

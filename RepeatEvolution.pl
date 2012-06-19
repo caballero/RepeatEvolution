@@ -255,9 +255,9 @@ sub saveSeqs {
     warn "saving sequence in $file\n" if (defined $verbose);
     open F, ">$file" or die "cannot open $file\n";
     foreach my $id (keys %seq) {
-        my $div = $seq{$id}{'div'};
+        my $div = sprintf("%.2f", 100 * $seq{$id}{'div'});
         my $seq = formatSeq(join "", @{ $seq{$id}{'seq'} });
-        print F ">$id | $div\n$seq";
+        print F ">$id | $div\%\n$seq";
     }
     close F;
 }
