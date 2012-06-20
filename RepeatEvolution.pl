@@ -105,7 +105,7 @@ my $ins_lim    = $conf{         'ins_freq'} + $del_lim;
 
 # MAIN LOOP
 for (my $gen = 1; $gen <= $last_gen; $gen++) {
-    warn "GENERATION $gen\n" if (defined $verbose and $gen % $report == 0);
+    warn "GENERATION $gen\n" if ($gen % $report == 0);
     foreach my $id (keys %seq) {
         next if ($seq{$id}{'isDead'} == 1); # sequence is dead
         # do we want to replicate?
@@ -326,7 +326,7 @@ sub mutate {
 sub addSNV {
     my ($id, $pos) = @_;
     my $b = substr($seq{$id}{'seq'}, $pos, 1);
-    warn "  SNV id:$id, pos:$pos, b:$b\n";
+    warn "  SNV id:$id, pos:$pos, b:$b\n" if (defined $verbose);
     if ($b =~ m/[acgt]/i) {
         # regular SNV
         my @n = qw/ a c g t/;
@@ -372,7 +372,7 @@ sub addDel {
     }
     my $size = int(rand $max_size);
     $size = 1 if ($size < 1);
-    warn "  DEL id:$id, pos:$pos, size:$size\n";
+    warn "  DEL id:$id, pos:$pos, size:$size\n" if (defined $verbose);
 
     for (my $i = 1; $i <= $size; $i++) {
         substr($seq{$id}{'seq'}, $pos + $i - 1, 1) = 'D';
@@ -392,7 +392,7 @@ sub addIns {
     }
     my $size = int(rand $max_size);
     $size = 1 if ($size < 1);
-    warn "  INS id:$id, pos:$pos, size:$size\n";
+    warn "  INS id:$id, pos:$pos, size:$size\n" if (defined $verbose);
 
     my $b = substr($seq{$id}{'seq'}, $pos, 1);
     substr($seq{$id}{'seq'}, $pos, 1) = 'I';

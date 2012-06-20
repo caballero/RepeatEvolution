@@ -4,9 +4,9 @@
 # Format:
 # Variable := Value
 # number of generations
-total_generations := 10
+total_generations := 100
 # mutation rate per generation
-mutation_rate     := 0.05
+mutation_rate     := 0.01
 # frequency of SNV
 snv_freq          := 0.80
 # frequency of insertions
@@ -20,7 +20,7 @@ del_dist          := 1=0.8,5=0.1,10=0.1
 # expansion probability
 prob_expansion    := 0.8
 # expansion max limit
-max_expansion     := 4
+max_expansion     := 10
 # limits when a sequence cannot expand anymore
 dead_threshold    := 0.5
 # report every X generations
