@@ -109,18 +109,19 @@ for (my $gen = 1; $gen <= $last_gen; $gen++) {
     foreach my $id (keys %seq) {
         next if ($seq{$id}{'isDead'} == 1); # sequence is dead
         # do we want to replicate?
-        if ($seq{$id}{'exp'} >= rand) {
+        if ($seq{$id}{'exp'} > rand) {
             # how many copies?
             my $num_copies = int(rand $max_expand);
             $num_copies = 1 if ($num_copies < 1);
             warn "REPLICATING $id in $num_copies\n" if (defined $verbose);
             for (my $j = 1; $j <= $num_copies; $j++) {
                 my $new_id = "$id-$j";
-                $seq{$new_id}{'div'}       =      $seq{$id}{'div'};
-                $seq{$new_id}{'exp'}       =      $seq{$id}{'exp'};
-                $seq{$new_id}{'mut'}       =      $seq{$id}{'mut'};
-                $seq{$new_id}{'isDead'}    =   $seq{$id}{'isDead'};
-                @{ $seq{$new_id}{'seq'} }  = @{ $seq{$id}{'seq'} };
+                $seq{$new_id}{'div'}    =      $seq{$id}{'div'};
+                $seq{$new_id}{'exp'}    =      $seq{$id}{'exp'};
+                $seq{$new_id}{'mut'}    =      $seq{$id}{'mut'};
+                $seq{$new_id}{'isDead'} =   $seq{$id}{'isDead'};
+                $seq{$new_id}{'seq'}    =      $seq{$id}{'seq'};
+                $seq{$new_id}{'ins'}    =      $seq{$id}{'ins'};
             }
         }
         mutate($id, $mut_rate);
@@ -128,8 +129,7 @@ for (my $gen = 1; $gen <= $last_gen; $gen++) {
     }
     saveSeqs("$fasta.G$gen.fa") if (defined $save_seqs and $gen % $report == 0);
 }
-
-# final sequences after simulation
+# write sequences after simulation
 saveSeqs($out);
 
 ###################################
@@ -166,13 +166,13 @@ sub loadFasta {
             $seq{$id}{'mut'}      =   0;
             $seq{$id}{'exp'}      = $conf{'prob_expansion'};
             $seq{$id}{'isDead'}   =   0;
-            @{ $seq{$id}{'seq'} } =  ();
+            $seq{$id}{'ins'}      = ';';
+            $seq{$id}{'seq'}      =  '';
         }
         else {
             my $seq = uc $_;
                $seq = validateSeq($seq) if ($seq =~ m/[^ACGT]/);
-            my @seq = split(//, $seq);
-            push @{ $seq{$id}{'seq'} }, @seq;
+            $seq{$id}{'seq'} .= $seq;
         }
     }
     close F;
@@ -252,14 +252,26 @@ sub validateSeq {
 
 sub saveSeqs {
     my $file = shift @_;
-    warn "saving sequence in $file\n" if (defined $verbose);
+    warn "SAVING sequences in $file\n" if (defined $verbose);
     open F, ">$file" or die "cannot open $file\n";
+    my $cnt = 0;
     foreach my $id (keys %seq) {
         my $div = sprintf("%.2f", 100 * $seq{$id}{'div'});
-        my $seq = formatSeq(join "", @{ $seq{$id}{'seq'} });
+        my @seq = split(//, $seq{$id}{'seq'});
+        my @ins = split(/;/, $seq{$id}{'ins'});
+        shift @ins; # first one is empty
+        foreach my $elem (@ins) {
+            my ($pos, $ins) = split (/:/, $elem);
+            $seq[$pos]      = $ins;
+        }
+        my $seq = join "", @seq;
+        $seq    =~ s/D//g;
+        $seq    = formatSeq($seq);
         print F ">$id | $div\%\n$seq";
+        $cnt++;
     }
     close F;
+    warn "  wrote $cnt sequences\n" if (defined $verbose);
 }
 
 sub formatSeq {
@@ -276,15 +288,23 @@ sub formatSeq {
 sub mutate {
     my ($id, $rate) = @_;
     my $myrate  = rand($rate);
-    my @myseq   = @{ $seq{$id}{'seq'} };
-    my $num_mut = int($myrate * (1 + $#myseq));
+    my $myseq   = $seq{$id}{'seq'};
+    my $mylen   = length $myseq;
+    my $num_mut = int($myrate * (1 + $mylen));
     
     for (my $i = 1; $i <= $num_mut; $i++) {
-        my $pos = int(rand @myseq);
+        my $pos  = int(rand $mylen) - 1;
+        my $w    = substr($myseq, $pos, 1);
         my $dice = rand;
-        if    ($dice < $snv_lim) { 
-            my $b = addSNV($id, $pos);
-            $seq{$id}{'exp'} += $matrix{$pos}{$b};
+        if ($dice < $snv_lim) {
+            if ($w eq 'D') {
+                $i--;
+                next;
+            }
+            else {
+                my $b = addSNV($id, $pos);
+                $seq{$id}{'exp'} += $matrix{$pos}{$b};
+            }
         }
         elsif ($dice < $del_lim) { 
             my $d = addDel($id, $pos);
@@ -299,14 +319,15 @@ sub mutate {
     }
     
     my $mut   = $seq{$id}{'mut'};
-    my $div   = sprintf("%.4f", $mut / ($#myseq + 1));
+    my $div   = sprintf("%.4f", $mut / ($mylen + 1));
     $seq{$id}{'div'} = $div;
 }
 
 sub addSNV {
     my ($id, $pos) = @_;
-    my $b = $seq{$id}{'seq'}[$pos];
-    if (length $b == 1) {
+    my $b = substr($seq{$id}{'seq'}, $pos, 1);
+    warn "  SNV id:$id, pos:$pos, b:$b\n";
+    if ($b =~ m/[acgt]/i) {
         # regular SNV
         my @n = qw/ a c g t/;
         if    ($b =~ m/a/i) { @n = qw/c g t/; }
@@ -314,21 +335,24 @@ sub addSNV {
         elsif ($b =~ m/g/i) { @n = qw/a c t/; }
         elsif ($b =~ m/t/i) { @n = qw/a c g/; }
         my $n = $n[ int(rand @n) ];
-        $seq{$id}{'seq'}[$pos] = $n;
+        substr($seq{$id}{'seq'}, $pos, 1) = $n;
         $seq{$id}{'mut'}++;
         return uc $n;
     }
-    elsif (length $b > 1) {
+    elsif ($b =~ m/I/) {
         # mutation in an insertion point
-        my $pos2 = int(rand(length $b));
-        my $a    = substr($b, $pos2, 1);
-        my @n = qw/ a c g t/;
-        if    ($a =~ m/a/i) { @n = qw/c g t/; }
-        elsif ($a =~ m/c/i) { @n = qw/a g t/; }
-        elsif ($a =~ m/g/i) { @n = qw/a c t/; }
-        elsif ($a =~ m/t/i) { @n = qw/a c g/; }
-        substr($b, $pos2, 1) = $n[ int(rand @n) ];
-        $seq{$id}{'seq'}[$pos] = $b;
+        if ($seq{$id}{'ins'} =~ m/;$pos:(\w+?);/) {
+            my $seq2 = $1;
+            my $pos2 = int(rand(length $seq2));
+            my $a    = substr($seq2, $pos2, 1);
+            my @n = qw/ a c g t/;
+            if    ($a =~ m/a/i) { @n = qw/c g t/; }
+            elsif ($a =~ m/c/i) { @n = qw/a g t/; }
+            elsif ($a =~ m/g/i) { @n = qw/a c t/; }
+            elsif ($a =~ m/t/i) { @n = qw/a c g/; }
+            substr($seq2, $pos2, 1) = $n[ int(rand @n) ];
+            $seq{$id}{'ins'} =~ s/;$pos:\w+?;/;$pos:$seq2;/;
+        }
         return 'N';
     }
     else {
@@ -348,8 +372,10 @@ sub addDel {
     }
     my $size = int(rand $max_size);
     $size = 1 if ($size < 1);
+    warn "  DEL id:$id, pos:$pos, size:$size\n";
+
     for (my $i = 1; $i <= $size; $i++) {
-        $seq{$id}{'seq'}[$pos] = '';
+        substr($seq{$id}{'seq'}, $pos + $i - 1, 1) = 'D';
     }
     $seq{$id}{'mut'} += $size;
     return $size;
@@ -366,7 +392,11 @@ sub addIns {
     }
     my $size = int(rand $max_size);
     $size = 1 if ($size < 1);
-    $seq{$id}{'seq'}[$pos] .= newSeq($size);
+    warn "  INS id:$id, pos:$pos, size:$size\n";
+
+    my $b = substr($seq{$id}{'seq'}, $pos, 1);
+    substr($seq{$id}{'seq'}, $pos, 1) = 'I';
+    $seq{$id}{'ins'} .= "$pos:$b" . newSeq($size) . ";";
     $seq{$id}{'mut'} += $size;
 }
 
