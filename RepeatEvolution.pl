@@ -122,6 +122,8 @@ for (my $gen = 1; $gen <= $last_gen; $gen++) {
                 $seq{$new_id}{'isDead'} =   $seq{$id}{'isDead'};
                 $seq{$new_id}{'seq'}    =      $seq{$id}{'seq'};
                 $seq{$new_id}{'ins'}    =      $seq{$id}{'ins'};
+                mutate($new_id, $mut_rate);
+                $seq{$new_id}{'isDead'} = 1 if ($seq{$new_id}{'div'} > $dead_lim);
             }
         }
         mutate($id, $mut_rate);
@@ -294,6 +296,8 @@ sub mutate {
     
     for (my $i = 1; $i <= $num_mut; $i++) {
         my $pos  = int(rand $mylen) - 1;
+        $pos = 0 if ($pos < 0);
+        $pos = $mylen - 1 if ($pos > ($mylen - 1));
         my $w    = substr($myseq, $pos, 1);
         my $dice = rand;
         if ($dice < $snv_lim) {
@@ -309,6 +313,7 @@ sub mutate {
         elsif ($dice < $del_lim) { 
             my $d = addDel($id, $pos);
             for (my $j = 0; $j <= $d - 1; $j++) {
+                last unless (defined $matrix{$pos + $j}{'D'});
                 $seq{$id}{'exp'} += $matrix{$pos + $j}{'D'};
             }
         }
